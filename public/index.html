@@ -824,6 +824,8 @@ async function copiarTexto(texto){
   if(!ok) throw new Error('Não foi possível copiar automaticamente');
 }
 function tokenCompartilhamentoDaUrl(){
+  const hashToken = location.hash.match(/^#s\/([^/?#]+)/);
+  if(hashToken) return decodeURIComponent(hashToken[1]);
   const queryToken = new URLSearchParams(location.search).get('share');
   if(queryToken) return queryToken;
   const pathToken = location.pathname.match(/\/s\/([^/?#]+)/);
@@ -875,7 +877,7 @@ async function compartilharEntrada(id){
     });
     if(rpcError) throw rpcError;
 
-    const url = `${baseAppUrl()}/s/${encodeURIComponent(token)}`;
+    const url = `${baseAppUrl()}/#s/${encodeURIComponent(token)}`;
     const texto = `Segue o ${payload.titulo} para visualização:\n${url}\n\nLink válido por 7 dias.`;
     if(navigator.share){
       await navigator.share({ title: payload.titulo, text: texto });
