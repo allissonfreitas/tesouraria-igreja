@@ -140,6 +140,12 @@ body.dark .login-hint{background:#1c2140;color:#a5b4fc}
 .seg button{flex:1;padding:9px;border-radius:9px;background:none;font-weight:700;font-size:13.5px;color:var(--muted)}
 .seg button.on{background:var(--surface);color:var(--accent);box-shadow:var(--shadow)}
 @media(min-width:640px){.kpis{grid-template-columns:repeat(4,1fr)}}
+@media(max-width:480px){
+  .reg{display:grid;grid-template-columns:64px minmax(0,1fr);align-items:start;gap:10px}
+  .reg .actions{grid-column:1 / -1;flex-direction:row;align-items:center;justify-content:space-between;width:100%;border-top:1px solid var(--border);padding-top:8px}
+  .reg .share{padding:8px 12px;max-width:58%;overflow:hidden;text-overflow:ellipsis}
+  .reg .del{padding:6px 0 6px 8px}
+}
 </style>
 </head>
 <body>
