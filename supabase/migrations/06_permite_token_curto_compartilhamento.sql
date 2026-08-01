@@ -1,4 +1,4 @@
--- Ajusta a validacao para tokens de compartilhamento mais curtos na URL /s/<token>.
+-- Ajusta a validacao para tokens de compartilhamento mais curtos na URL /#s/<token>.
 
 create or replace function public.salvar_compartilhamento(
   p_token text,

@@ -80,3 +80,9 @@ Se as chaves do Supabase mudarem, atualize as constantes `SUPABASE_URL` e `SUPAB
 - A chave do Gemini fica no servidor (Edge Function), nunca exposta no site
 - Cada registro guarda quem lançou e quando
 - A chave publicável do Supabase no `index.html` é pública por natureza e segura de versionar. **A chave secreta (`sb_secret_...`) nunca deve ser colocada neste repositório**
+
+## Instalação para nova igreja
+
+Para instalar uma nova cópia do sistema do zero, siga o guia completo:
+
+- [Setup passo a passo](docs/INSTALACAO.md)
