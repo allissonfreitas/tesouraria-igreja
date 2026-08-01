@@ -69,3 +69,5 @@ $$;
 
 grant execute on function public.salvar_compartilhamento(text, jsonb, timestamptz) to authenticated;
 grant execute on function public.ver_compartilhamento(text) to anon, authenticated;
+
+notify pgrst, 'reload schema';
