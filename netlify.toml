@@ -2,6 +2,10 @@
   publish = "public"
   command = ""
 
+[[redirects]]
+  from = "/s/*"
+  to = "/index.html"
+  status = 200
 [[headers]]
   for = "/*"
   [headers.values]
