@@ -44,6 +44,15 @@ input,select{font-family:inherit;font-size:15px}
 .btn.green{background:var(--green)}
 .btn.danger{background:var(--red)}
 .err{color:var(--red);font-size:13px;text-align:center;margin-top:10px;display:none}
+.share-wrap{min-height:100vh;display:none;align-items:center;justify-content:center;padding:20px;background:var(--bg)}
+.share-card{background:var(--surface);border:1px solid var(--border);border-radius:20px;padding:28px 22px;width:100%;max-width:520px;box-shadow:var(--shadow)}
+.share-card h1{font-size:21px;font-weight:800;text-align:center;letter-spacing:-.02em;margin-bottom:6px}
+.share-card p.sub{color:var(--muted);text-align:center;font-size:13.5px;line-height:1.5;margin-bottom:18px}
+.share-files{display:grid;gap:10px;margin-top:14px}
+.share-file{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:12px 14px;border:1px solid var(--border);border-radius:12px;background:var(--bg);color:var(--text);font-weight:700;text-decoration:none;font-size:14px}
+.share-file span{overflow:hidden;text-overflow:ellipsis}
+.share-file b{color:var(--accent);white-space:nowrap}
+.share-note{color:var(--muted);font-size:12.5px;line-height:1.45;margin-top:14px;text-align:center}
 
 .app{display:none;min-height:100vh;padding-bottom:84px}
 .topbar{background:var(--surface);border-bottom:1px solid var(--border);padding:14px 18px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:20}
@@ -149,6 +158,17 @@ body.dark .login-hint{background:#1c2140;color:#a5b4fc}
 </style>
 </head>
 <body>
+
+<!-- COMPARTILHAMENTO PUBLICO -->
+<div class="share-wrap" id="shareScreen">
+  <div class="share-card">
+    <div class="login-logo">⛪</div>
+    <h1 id="shareTitle">Relatório compartilhado</h1>
+    <p class="sub" id="shareSub">Carregando arquivos do relatório…</p>
+    <div class="share-files" id="shareFiles"></div>
+    <div class="share-note" id="shareNote"></div>
+  </div>
+</div>
 
 <!-- LOGIN -->
 <div class="login-wrap" id="loginScreen">
@@ -391,6 +411,35 @@ async function loadProfileAndEnter(){
 }
 function isAdminUser(){ return session && session.role === 'admin'; }
 
+async function abrirCompartilhamento(token){
+  document.getElementById('loginScreen').style.display = 'none';
+  document.getElementById('app').style.display = 'none';
+  document.getElementById('tabbar').style.display = 'none';
+  const tela = document.getElementById('shareScreen');
+  tela.style.display = 'flex';
+  try {
+    const { data, error } = await supa.rpc('ver_compartilhamento', { p_token: token });
+    if(error) throw error;
+    if(!data){
+      document.getElementById('shareTitle').textContent = 'Link expirado ou inválido';
+      document.getElementById('shareSub').textContent = 'Peça para a tesouraria gerar um novo compartilhamento.';
+      return;
+    }
+    document.getElementById('shareTitle').textContent = data.titulo || 'Relatório compartilhado';
+    document.getElementById('shareSub').textContent = data.subtitulo || 'Arquivos disponíveis para visualização.';
+    document.getElementById('shareFiles').innerHTML = (data.arquivos || []).map(a => `
+      <a class="share-file" href="${a.url}" target="_blank" rel="noopener">
+        <span>${a.label}</span><b>Abrir</b>
+      </a>`).join('') || '<div class="empty">Nenhum arquivo disponível.</div>';
+    const expira = data.expira_em ? new Date(data.expira_em).toLocaleString('pt-BR') : '';
+    document.getElementById('shareNote').textContent = expira ? 'Links válidos até ' + expira + '.' : 'Links com validade limitada.';
+  } catch(e){
+    console.error(e);
+    document.getElementById('shareTitle').textContent = 'Não foi possível abrir';
+    document.getElementById('shareSub').textContent = 'Verifique o link ou peça para a tesouraria compartilhar novamente.';
+  }
+}
+
 function enterApp(){
   document.getElementById('loginScreen').style.display = 'none';
   document.getElementById('app').style.display = 'block';
@@ -437,6 +486,8 @@ function toggleTheme(){
 /* sessão persistida */
 (async function init(){
   applyTheme();
+  const tokenCompartilhamento = new URLSearchParams(location.search).get('share');
+  if(tokenCompartilhamento){ await abrirCompartilhamento(tokenCompartilhamento); return; }
   buildNotasRows();
   const { data: { session: s } } = await supa.auth.getSession();
   if(s) await loadProfileAndEnter();
@@ -772,38 +823,58 @@ async function copiarTexto(texto){
   area.remove();
   if(!ok) throw new Error('Não foi possível copiar automaticamente');
 }
+function gerarTokenCompartilhamento(){
+  const bytes = new Uint8Array(18);
+  if(window.crypto && crypto.getRandomValues){
+    crypto.getRandomValues(bytes);
+  } else {
+    for(let i = 0; i < bytes.length; i++) bytes[i] = Math.floor(Math.random() * 256);
+  }
+  return btoa(String.fromCharCode(...bytes)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
+}
 async function compartilharEntrada(id){
   const r = cacheEntradas.find(x => x.id === id);
   if(!r){ toast('Registro não encontrado'); return; }
   const arquivos = arquivosEntrada(r);
   if(!arquivos.length){ toast('Este relatório não tem arquivos para compartilhar'); return; }
   try {
-    toast('Gerando links de compartilhamento…');
+    toast('Criando link de compartilhamento…');
     const { data, error } = await supa.storage.from('fotos').createSignedUrls(arquivos.map(a => a.path), 604800);
     if(error) throw error;
-    const linhas = [
-      `Relatório de receitas Nº ${r.num || 's/n'}`,
-      `Unidade: ${r.unidade || '-'}`,
-      `Data: ${fmtData(r.data)}${r.hora ? ' ' + r.hora : ''}`,
-      '',
-      'Links para visualização dos arquivos (válidos por 7 dias):'
-    ];
-    arquivos.forEach((a, i) => {
-      const url = data && data[i] && data[i].signedUrl;
-      if(url) linhas.push(`${a.label}: ${url}`);
+    const arquivosPayload = arquivos.map((a, i) => ({
+      label: a.label,
+      url: data && data[i] && data[i].signedUrl
+    })).filter(a => a.url);
+    if(!arquivosPayload.length){ toast('Não foi possível gerar links dos arquivos'); return; }
+
+    const token = gerarTokenCompartilhamento();
+    const expiraEm = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+    const payload = {
+      titulo: `Relatório de receitas Nº ${r.num || 's/n'}`,
+      subtitulo: `${r.unidade || 'Unidade não informada'} · ${fmtData(r.data)}${r.hora ? ' ' + r.hora : ''}`,
+      expira_em: expiraEm.toISOString(),
+      arquivos: arquivosPayload
+    };
+    const { error: rpcError } = await supa.rpc('salvar_compartilhamento', {
+      p_token: token,
+      p_payload: payload,
+      p_expira_em: expiraEm.toISOString()
     });
-    const texto = linhas.join('\n');
+    if(rpcError) throw rpcError;
+
+    const url = `${location.origin}${location.pathname}?share=${encodeURIComponent(token)}`;
+    const texto = `Segue o ${payload.titulo} para visualização:\n${url}\n\nLink válido por 7 dias.`;
     if(navigator.share){
-      await navigator.share({ title: `Relatório Nº ${r.num || 's/n'}`, text: texto });
-      toast('Links prontos para compartilhar');
+      await navigator.share({ title: payload.titulo, text: texto, url });
+      toast('Link pronto para compartilhar');
       return;
     }
     await copiarTexto(texto);
-    toast('Links copiados. Cole no WhatsApp ou e-mail.');
+    toast('Link copiado. Cole no WhatsApp ou e-mail.');
   } catch(e){
     if(e && e.name === 'AbortError') return;
     console.error(e);
-    toast('Não foi possível gerar os links de compartilhamento');
+    toast('Não foi possível criar o link. Verifique se a migration foi aplicada.');
   }
 }
 function renderHist(){
