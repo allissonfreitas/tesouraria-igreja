@@ -261,6 +261,18 @@ body.dark .login-hint{background:#1c2140;color:#a5b4fc}
     </div>
 
     <div class="card">
+      <h3>⚡ Comprovantes Pix (opcional)</h3>
+      <p style="font-size:12.5px;color:var(--muted);margin-bottom:10px">Fotos ou prints de comprovantes Pix, vinculados ao mesmo Nº do relatório. Esses anexos não alteram os valores acima.</p>
+      <div class="dropzone" style="padding:16px" onclick="document.getElementById('pFile').click()">
+        <p>📷 Tirar foto do comprovante Pix</p>
+      </div>
+      <input type="file" id="pFile" accept="image/*" capture="environment" style="display:none" onchange="handlePixFoto(this)">
+      <input type="file" id="pFileGaleria" accept="image/*" multiple style="display:none" onchange="handlePixFoto(this)">
+      <button class="btn" id="btnPGaleria" style="display:none;margin-bottom:10px;background:var(--surface);color:var(--accent);border:1px solid #c7d2fe" onclick="document.getElementById('pFileGaleria').click()">📁 Escolher dos arquivos (WhatsApp / Galeria)</button>
+      <div id="pixThumbs" style="display:flex;gap:10px;flex-wrap:wrap;margin-top:4px"></div>
+    </div>
+
+    <div class="card">
       <h3>Fechamento</h3>
       <div class="row2">
         <div class="field"><label>Nº de pessoas</label><input type="number" min="0" id="rPessoas" placeholder="ex.: 64"></div>
@@ -276,6 +288,7 @@ body.dark .login-hint{background:#1c2140;color:#a5b4fc}
     <h2 class="page-title">Registrar saída</h2>
     <p class="page-sub">Despesas e pagamentos da igreja, com comprovante opcional.</p>
     <div class="card">
+      <div class="field"><label>Número do relatório</label><input id="sNum" placeholder="ex.: 61601"></div>
       <div class="row2">
         <div class="field"><label>Data</label><input type="date" id="sData"></div>
         <div class="field"><label>Valor</label><input type="text" inputmode="numeric" id="sValor" placeholder="R$ 0,00" oninput="moneyMask(this)"></div>
@@ -339,6 +352,7 @@ const supa = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 const NOTAS = [2, 5, 10, 20, 50, 100, 200];
 let session = null, chart = null, chartPizza = null, photoData = null, comprovanteData = null, histView = 'in';
 let cartaoFotos = [];
+let pixFotos = [];
 let cacheEntradas = [], cacheSaidas = [], fotoUrls = {};
 
 /* ============ LOGIN ============ */
@@ -385,6 +399,7 @@ function enterApp(){
   document.getElementById('btnGaleria').style.display = isAdmin ? 'block' : 'none';
   document.getElementById('btnSGaleria').style.display = isAdmin ? 'block' : 'none';
   document.getElementById('btnCGaleria').style.display = isAdmin ? 'block' : 'none';
+  document.getElementById('btnPGaleria').style.display = isAdmin ? 'block' : 'none';
   document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
   document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
   if(isAdmin){
@@ -445,6 +460,7 @@ async function refreshData(){
 async function loadFotoUrls(){
   const paths = [...cacheEntradas, ...cacheSaidas].map(r => r.foto_path)
     .concat(cacheEntradas.flatMap(r => r.fotos_cartao || []))
+    .concat(cacheEntradas.flatMap(r => r.fotos_pix || []))
     .filter(p => p && !fotoUrls[p]);
   if(!paths.length) return;
   const { data } = await supa.storage.from('fotos').createSignedUrls(paths, 3600);
@@ -546,6 +562,20 @@ function renderCartaoThumbs(){
 }
 function removeCartaoFoto(i){ cartaoFotos.splice(i, 1); renderCartaoThumbs(); }
 
+/* Comprovantes Pix: várias fotos ou prints, somente armazenamento */
+function handlePixFoto(input){
+  [...input.files].forEach(f => compressImage(f, d => { pixFotos.push(d); renderPixThumbs(); }));
+  input.value = '';
+}
+function renderPixThumbs(){
+  document.getElementById('pixThumbs').innerHTML = pixFotos.map((d, i) => `
+    <div style="position:relative">
+      <img src="${d}" style="width:72px;height:72px;object-fit:cover;border-radius:10px;border:1px solid var(--border)">
+      <button onclick="removePixFoto(${i})" style="position:absolute;top:-7px;right:-7px;background:var(--red);color:#fff;border-radius:50%;width:22px;height:22px;font-size:12px;line-height:1">✕</button>
+    </div>`).join('');
+}
+function removePixFoto(i){ pixFotos.splice(i, 1); renderPixThumbs(); }
+
 function handleComprovante(input){
   const file = input.files[0];
   if(!file) return;
@@ -569,9 +599,15 @@ function compressImage(file, cb){
   };
   img.src = URL.createObjectURL(file);
 }
-async function uploadFoto(dataUrl, pasta){
+function relatorioSlug(numRelatorio){
+  return String(numRelatorio || 'sem-relatorio')
+    .trim()
+    .replace(/[^0-9A-Za-z_-]+/g, '-')
+    .replace(/^-+|-+$/g, '') || 'sem-relatorio';
+}
+async function uploadFoto(dataUrl, pasta, numRelatorio = ''){
   const blob = await (await fetch(dataUrl)).blob();
-  const path = pasta + '/' + Date.now() + '.jpg';
+  const path = pasta + '/' + relatorioSlug(numRelatorio) + '/' + Date.now() + '.jpg';
   const { error } = await supa.storage.from('fotos').upload(path, blob, { contentType: 'image/jpeg' });
   if(error) throw error;
   return path;
@@ -580,6 +616,8 @@ async function uploadFoto(dataUrl, pasta){
 /* ============ SALVAR ENTRADA ============ */
 async function saveEntrada(){
   const data = document.getElementById('rData').value;
+  const numRelatorio = document.getElementById('rNum').value.trim();
+  if(!numRelatorio){ toast('Informe o número do relatório'); return; }
   if(!data){ toast('Informe a data da reunião'); return; }
   if(!photoData){ toast('Tire a foto do relatório primeiro 📷'); return; }
   const t = calc();
@@ -587,14 +625,16 @@ async function saveEntrada(){
   const btn = document.getElementById('btnSalvarEntrada');
   btn.disabled = true; btn.textContent = 'Enviando…';
   try {
-    const foto_path = await uploadFoto(photoData, 'entradas');
+    const foto_path = await uploadFoto(photoData, 'entradas', numRelatorio);
     const fotos_cartao = [];
-    for(const f of cartaoFotos){ fotos_cartao.push(await uploadFoto(f, 'cartao')); }
+    for(const f of cartaoFotos){ fotos_cartao.push(await uploadFoto(f, 'cartao', numRelatorio)); }
+    const fotos_pix = [];
+    for(const f of pixFotos){ fotos_pix.push(await uploadFoto(f, 'pix', numRelatorio)); }
     const notas = {};
     NOTAS.forEach(n => { const q = parseInt(document.getElementById('q' + n).value) || 0; if(q) notas[n] = q; });
     const { error } = await supa.from('entradas').insert({
       user_id: session.id,
-      num: document.getElementById('rNum').value,
+      num: numRelatorio,
       unidade: document.getElementById('rUnidade').value,
       data, hora: document.getElementById('rHora').value,
       notas,
@@ -604,7 +644,7 @@ async function saveEntrada(){
       pessoas: parseInt(document.getElementById('rPessoas').value) || null,
       lacre: document.getElementById('rLacre').value,
       resp: document.getElementById('rResp').value,
-      foto_path, fotos_cartao, por: session.nome
+      foto_path, fotos_cartao, fotos_pix, por: session.nome
     });
     if(error) throw error;
     clearEntrada();
@@ -619,9 +659,12 @@ async function saveEntrada(){
 function clearEntrada(){
   photoData = null;
   cartaoFotos = []; renderCartaoThumbs();
+  pixFotos = []; renderPixThumbs();
   document.getElementById('preview').style.display = 'none';
   document.getElementById('btnOcr').style.display = 'none';
   document.getElementById('fileInput').value = '';
+  document.getElementById('pFile').value = '';
+  document.getElementById('pFileGaleria').value = '';
   ['rNum','rUnidade','rHora','rVr','rMoedas','rPix','rCheque','rCartao','rPessoas','rLacre','rResp'].forEach(i => document.getElementById(i).value = '');
   NOTAS.forEach(n => { document.getElementById('q' + n).value = ''; });
   document.getElementById('rData').valueAsDate = new Date();
@@ -630,9 +673,11 @@ function clearEntrada(){
 
 /* ============ SALVAR SAIDA ============ */
 async function saveSaida(){
+  const numRelatorio = document.getElementById('sNum').value.trim();
   const data = document.getElementById('sData').value;
   const valor = parseMoney('sValor');
   const desc = document.getElementById('sDesc').value.trim();
+  if(!numRelatorio){ toast('Informe o número do relatório'); return; }
   if(!data){ toast('Informe a data'); return; }
   if(valor <= 0){ toast('Informe o valor'); return; }
   if(!desc){ toast('Descreva a saída'); return; }
@@ -640,9 +685,9 @@ async function saveSaida(){
   btn.disabled = true; btn.textContent = 'Enviando…';
   try {
     let foto_path = null;
-    if(comprovanteData) foto_path = await uploadFoto(comprovanteData, 'saidas');
+    if(comprovanteData) foto_path = await uploadFoto(comprovanteData, 'saidas', numRelatorio);
     const { error } = await supa.from('saidas').insert({
-      user_id: session.id, data, valor,
+      user_id: session.id, num_relatorio: numRelatorio, data, valor,
       descricao: desc,
       categoria: document.getElementById('sCat').value,
       foto_path, por: session.nome
@@ -651,7 +696,8 @@ async function saveSaida(){
     comprovanteData = null;
     document.getElementById('sPreview').style.display = 'none';
     document.getElementById('sFile').value = '';
-    ['sValor','sDesc'].forEach(i => document.getElementById(i).value = '');
+    document.getElementById('sFileGaleria').value = '';
+    ['sNum','sValor','sDesc'].forEach(i => document.getElementById(i).value = '');
     toast('✔️ Saída registrada!');
     if(isAdminUser()){
       await refreshData();
@@ -674,6 +720,36 @@ function thumb(r){
   const url = r.foto_path && fotoUrls[r.foto_path];
   return url ? `<img src="${url}" onclick="openModal('${r.foto_path}')" alt="foto">` : '<div class="noimg">📄</div>';
 }
+function mesmoRelatorio(a, b){
+  const aa = String(a || '').trim();
+  const bb = String(b || '').trim();
+  return !!aa && !!bb && aa === bb;
+}
+function arquivoLink(path, label){
+  const url = path && fotoUrls[path];
+  return url ? `<a href="${url}" target="_blank" style="color:var(--accent);font-size:12px;font-weight:600">${label}</a>` : '';
+}
+function linksArquivosEntrada(r){
+  const links = [];
+  const rel = r.num || '';
+  const saidasRel = cacheSaidas.filter(s => mesmoRelatorio(s.num_relatorio, rel) && s.foto_path);
+  const fotoRelatorio = arquivoLink(r.foto_path, '📷 Imagem do relatório de receitas');
+  if(fotoRelatorio) links.push(fotoRelatorio);
+  (r.fotos_cartao || []).forEach((p, i) => {
+    const link = arquivoLink(p, `💳 Comprovante de cartão ${i + 1}`);
+    if(link) links.push(link);
+  });
+  (r.fotos_pix || []).forEach((p, i) => {
+    const link = arquivoLink(p, `⚡ Comprovante Pix ${i + 1}`);
+    if(link) links.push(link);
+  });
+  saidasRel.forEach((s, i) => {
+    const desc = s.descricao ? ' — ' + s.descricao : '';
+    const link = arquivoLink(s.foto_path, `📎 Comprovante de saída ${i + 1}${desc}`);
+    if(link) links.push(link);
+  });
+  return links.length ? '<br>' + links.join('<br>') : '';
+}
 function renderHist(){
   const list = document.getElementById('regList');
   if(histView === 'in'){
@@ -683,7 +759,7 @@ function renderHist(){
         ${thumb(r)}
         <div class="info">
           <div class="d">${fmtData(r.data)} ${r.hora || ''} — Nº ${r.num || 's/n'}</div>
-          <div class="c">${r.unidade || ''} · Dinheiro ${fmt(r.dinheiro)}${r.vr > 0 ? ' · VR ' + fmt(r.vr) : ''} · PIX ${fmt(r.pix)} · Cartão ${fmt(r.cartao)}${r.cheque > 0 ? ' · Cheque ' + fmt(r.cheque) : ''}<br><small>${r.pessoas ? r.pessoas + ' pessoas · ' : ''}lacre ${r.lacre || '—'} · por ${r.por || ''}</small>${r.foto_path && fotoUrls[r.foto_path] ? `<br><a href="${fotoUrls[r.foto_path]}" target="_blank" style="color:var(--accent);font-size:12px;font-weight:600">📷 Ver imagem do relatório</a>` : ''}${(r.fotos_cartao || []).map((p, i) => fotoUrls[p] ? ` <a href="${fotoUrls[p]}" target="_blank" style="color:var(--accent);font-size:12px;font-weight:600">💳 Cartão ${i + 1}</a>` : '').join('')}</div>
+          <div class="c">${r.unidade || ''} · Dinheiro ${fmt(r.dinheiro)}${r.vr > 0 ? ' · VR ' + fmt(r.vr) : ''} · PIX ${fmt(r.pix)} · Cartão ${fmt(r.cartao)}${r.cheque > 0 ? ' · Cheque ' + fmt(r.cheque) : ''}<br><small>${r.pessoas ? r.pessoas + ' pessoas · ' : ''}lacre ${r.lacre || '—'} · por ${r.por || ''}</small>${linksArquivosEntrada(r)}</div>
         </div>
         <div class="v in">${fmt(r.geral)}</div>
         <button class="del" onclick="delReg('entradas',${r.id})">🗑️</button>
@@ -694,8 +770,8 @@ function renderHist(){
       <div class="reg">
         ${thumb(r)}
         <div class="info">
-          <div class="d">${fmtData(r.data)} — ${r.descricao}</div>
-          <div class="c">${r.categoria || ''}<br><small>registrado por ${r.por || ''}</small>${r.foto_path && fotoUrls[r.foto_path] ? `<br><a href="${fotoUrls[r.foto_path]}" target="_blank" style="color:var(--accent);font-size:12px;font-weight:600">📷 Ver comprovante</a>` : ''}</div>
+          <div class="d">${fmtData(r.data)} — Relatório Nº ${r.num_relatorio || 's/n'} — ${r.descricao}</div>
+          <div class="c">${r.categoria || ''}<br><small>registrado por ${r.por || ''}</small>${arquivoLink(r.foto_path, '📎 Comprovante de saída') ? '<br>' + arquivoLink(r.foto_path, '📎 Comprovante de saída') : ''}</div>
         </div>
         <div class="v out">− ${fmt(r.valor)}</div>
         <button class="del" onclick="delReg('saidas',${r.id})">🗑️</button>
@@ -725,15 +801,15 @@ function mesLabel(ym){
 }
 function fillMesFiltro(){
   const sel = document.getElementById('mesFiltro');
-  const atual = new Date().toISOString().slice(0,7);
-  const set = new Set([atual]);
+  const set = new Set();
   cacheEntradas.forEach(r => r.data && set.add(r.data.slice(0,7)));
   cacheSaidas.forEach(r => r.data && set.add(r.data.slice(0,7)));
   const meses = [...set].sort().reverse();
   const anterior = sel.value;
   sel.innerHTML = '<option value="all">Todos os meses</option>' +
     meses.map(m => `<option value="${m}">${mesLabel(m)}</option>`).join('');
-  sel.value = [...sel.options].some(o => o.value === anterior) && anterior ? anterior : atual;
+  /* Padrão: "Todos os meses", para bater com o total mostrado no Histórico */
+  sel.value = [...sel.options].some(o => o.value === anterior) && anterior ? anterior : 'all';
 }
 function renderHome(){
   fillMesFiltro();
@@ -798,6 +874,7 @@ async function exportXLSX(){
   const linkMap = {};
   const paths = [...cacheEntradas, ...cacheSaidas].map(r => r.foto_path)
     .concat(cacheEntradas.flatMap(r => r.fotos_cartao || []))
+    .concat(cacheEntradas.flatMap(r => r.fotos_pix || []))
     .filter(Boolean);
   if(paths.length){
     const { data } = await supa.storage.from('fotos').createSignedUrls(paths, 604800);
@@ -816,14 +893,15 @@ async function exportXLSX(){
     'Cheque (R$)': Number(r.cheque), 'Cartão (R$)': Number(r.cartao), 'TOTAL GERAL (R$)': Number(r.geral),
     'Nº Pessoas': r.pessoas, 'Nº Lacre': r.lacre, 'Responsáveis': r.resp,
     'Registrado por': r.por, 'Registrado em': r.criado_em ? new Date(r.criado_em).toLocaleString('pt-BR') : '',
-    'Link da Foto (7 dias)': r.foto_path ? (linkMap[r.foto_path] || '') : '',
-    'Comprovantes de Cartão (7 dias)': (r.fotos_cartao || []).map(p => linkMap[p] || '').filter(Boolean).join('  |  ')
+    'Imagem do relatório de receitas (7 dias)': r.foto_path ? (linkMap[r.foto_path] || '') : '',
+    'Comprovantes de cartão (7 dias)': (r.fotos_cartao || []).map(p => linkMap[p] || '').filter(Boolean).join('  |  '),
+    'Comprovantes Pix (7 dias)': (r.fotos_pix || []).map(p => linkMap[p] || '').filter(Boolean).join('  |  ')
   })));
   const wsOut = XLSX.utils.json_to_sheet(cacheSaidas.map(r => ({
-    'Data': fmtData(r.data), 'Descrição': r.descricao, 'Categoria': r.categoria,
+    'Número do relatório': r.num_relatorio || '', 'Data': fmtData(r.data), 'Descrição': r.descricao, 'Categoria': r.categoria,
     'Valor (R$)': Number(r.valor), 'Registrado por': r.por,
     'Registrado em': r.criado_em ? new Date(r.criado_em).toLocaleString('pt-BR') : '',
-    'Link do Comprovante (7 dias)': r.foto_path ? (linkMap[r.foto_path] || '') : ''
+    'Comprovante de saída (7 dias)': r.foto_path ? (linkMap[r.foto_path] || '') : ''
   })));
   const totIn = cacheEntradas.reduce((s,r) => s + Number(r.geral || 0), 0);
   const totOut = cacheSaidas.reduce((s,r) => s + Number(r.valor || 0), 0);
