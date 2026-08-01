@@ -77,8 +77,10 @@ p.page-sub{color:var(--muted);font-size:13.5px;margin-bottom:20px}
 .reg .info{flex:1;min-width:0}
 .reg .d{font-weight:700;font-size:14px}
 .reg .c{font-size:12px;color:var(--muted);line-height:1.5}
+.reg .actions{display:flex;flex-direction:column;align-items:flex-end;gap:6px}
 .reg .v{font-weight:800;font-size:15px;white-space:nowrap}
 .reg .v.in{color:var(--green)} .reg .v.out{color:var(--red)}
+.reg .share{background:var(--accent-soft);color:var(--accent);font-size:12px;font-weight:700;border-radius:8px;padding:8px 10px;white-space:nowrap}
 .reg .del{background:none;color:var(--red);font-size:18px;padding:6px}
 .empty{text-align:center;color:var(--muted);padding:40px 20px;font-size:14px}
 .empty .big{font-size:40px;margin-bottom:10px}
@@ -729,26 +731,74 @@ function arquivoLink(path, label){
   const url = path && fotoUrls[path];
   return url ? `<a href="${url}" target="_blank" style="color:var(--accent);font-size:12px;font-weight:600">${label}</a>` : '';
 }
-function linksArquivosEntrada(r){
-  const links = [];
+function arquivosEntrada(r){
+  const arquivos = [];
   const rel = r.num || '';
-  const saidasRel = cacheSaidas.filter(s => mesmoRelatorio(s.num_relatorio, rel) && s.foto_path);
-  const fotoRelatorio = arquivoLink(r.foto_path, '📷 Imagem do relatório de receitas');
-  if(fotoRelatorio) links.push(fotoRelatorio);
-  (r.fotos_cartao || []).forEach((p, i) => {
-    const link = arquivoLink(p, `💳 Comprovante de cartão ${i + 1}`);
-    if(link) links.push(link);
-  });
-  (r.fotos_pix || []).forEach((p, i) => {
-    const link = arquivoLink(p, `⚡ Comprovante Pix ${i + 1}`);
-    if(link) links.push(link);
-  });
-  saidasRel.forEach((s, i) => {
-    const desc = s.descricao ? ' — ' + s.descricao : '';
-    const link = arquivoLink(s.foto_path, `📎 Comprovante de saída ${i + 1}${desc}`);
-    if(link) links.push(link);
-  });
+  if(r.foto_path) arquivos.push({ path: r.foto_path, label: 'Imagem do relatório de receitas' });
+  (r.fotos_cartao || []).forEach((p, i) => arquivos.push({ path: p, label: `Comprovante de cartão ${i + 1}` }));
+  (r.fotos_pix || []).forEach((p, i) => arquivos.push({ path: p, label: `Comprovante Pix ${i + 1}` }));
+  cacheSaidas
+    .filter(s => mesmoRelatorio(s.num_relatorio, rel) && s.foto_path)
+    .forEach((s, i) => {
+      const desc = s.descricao ? ' — ' + s.descricao : '';
+      arquivos.push({ path: s.foto_path, label: `Comprovante de saída ${i + 1}${desc}` });
+    });
+  return arquivos;
+}
+function linksArquivosEntrada(r){
+  const links = arquivosEntrada(r)
+    .map(a => arquivoLink(a.path, a.label))
+    .filter(Boolean);
   return links.length ? '<br>' + links.join('<br>') : '';
+}
+async function copiarTexto(texto){
+  if(navigator.clipboard && window.isSecureContext){
+    await navigator.clipboard.writeText(texto);
+    return;
+  }
+  const area = document.createElement('textarea');
+  area.value = texto;
+  area.style.position = 'fixed';
+  area.style.left = '-9999px';
+  document.body.appendChild(area);
+  area.focus(); area.select();
+  const ok = document.execCommand('copy');
+  area.remove();
+  if(!ok) throw new Error('Não foi possível copiar automaticamente');
+}
+async function compartilharEntrada(id){
+  const r = cacheEntradas.find(x => x.id === id);
+  if(!r){ toast('Registro não encontrado'); return; }
+  const arquivos = arquivosEntrada(r);
+  if(!arquivos.length){ toast('Este relatório não tem arquivos para compartilhar'); return; }
+  try {
+    toast('Gerando links de compartilhamento…');
+    const { data, error } = await supa.storage.from('fotos').createSignedUrls(arquivos.map(a => a.path), 604800);
+    if(error) throw error;
+    const linhas = [
+      `Relatório de receitas Nº ${r.num || 's/n'}`,
+      `Unidade: ${r.unidade || '-'}`,
+      `Data: ${fmtData(r.data)}${r.hora ? ' ' + r.hora : ''}`,
+      '',
+      'Links para visualização dos arquivos (válidos por 7 dias):'
+    ];
+    arquivos.forEach((a, i) => {
+      const url = data && data[i] && data[i].signedUrl;
+      if(url) linhas.push(`${a.label}: ${url}`);
+    });
+    const texto = linhas.join('\n');
+    if(navigator.share){
+      await navigator.share({ title: `Relatório Nº ${r.num || 's/n'}`, text: texto });
+      toast('Links prontos para compartilhar');
+      return;
+    }
+    await copiarTexto(texto);
+    toast('Links copiados. Cole no WhatsApp ou e-mail.');
+  } catch(e){
+    if(e && e.name === 'AbortError') return;
+    console.error(e);
+    toast('Não foi possível gerar os links de compartilhamento');
+  }
 }
 function renderHist(){
   const list = document.getElementById('regList');
@@ -761,8 +811,11 @@ function renderHist(){
           <div class="d">${fmtData(r.data)} ${r.hora || ''} — Nº ${r.num || 's/n'}</div>
           <div class="c">${r.unidade || ''} · Dinheiro ${fmt(r.dinheiro)}${r.vr > 0 ? ' · VR ' + fmt(r.vr) : ''} · PIX ${fmt(r.pix)} · Cartão ${fmt(r.cartao)}${r.cheque > 0 ? ' · Cheque ' + fmt(r.cheque) : ''}<br><small>${r.pessoas ? r.pessoas + ' pessoas · ' : ''}lacre ${r.lacre || '—'} · por ${r.por || ''}</small>${linksArquivosEntrada(r)}</div>
         </div>
-        <div class="v in">${fmt(r.geral)}</div>
-        <button class="del" onclick="delReg('entradas',${r.id})">🗑️</button>
+        <div class="actions">
+          <div class="v in">${fmt(r.geral)}</div>
+          <button class="share" onclick="compartilharEntrada(${r.id})" title="Compartilhar links dos arquivos">📤 Compartilhar</button>
+          <button class="del" onclick="delReg('entradas',${r.id})">🗑️</button>
+        </div>
       </div>`).join('');
   } else {
     if(!cacheSaidas.length){ list.innerHTML = '<div class="empty"><div class="big">📤</div>Nenhuma saída registrada.</div>'; return; }
